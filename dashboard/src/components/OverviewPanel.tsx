@@ -75,7 +75,7 @@ function OverviewPanel() {
   return (
     <div className="space-y-6">
       {/* Summary Cards - All clickable */}
-      <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
         <Link to="/comments" className="block transform hover:scale-105 transition-transform">
           <StatCard
             icon={<MessageSquare className="h-6 w-6" />}
@@ -128,15 +128,13 @@ function OverviewPanel() {
             {topThemes.map(theme => (
               <div 
                 key={theme.code} 
-                className="flex items-center justify-between cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors"
+                className="flex items-start cursor-pointer hover:bg-gray-50 p-2 rounded-lg transition-colors gap-2"
                 onClick={() => navigate(`/themes/${theme.code}`)}
               >
-                <div className="flex-1">
-                  <span className="font-medium text-gray-900">{theme.code}</span>
-                  <span className="text-gray-600 ml-2">{theme.label || theme.description}</span>
-                </div>
-                <span className="text-sm text-blue-600 font-medium">
-                  {theme.direct_count} comments
+                <span className="font-mono font-semibold text-gray-400 text-sm w-9 text-right flex-shrink-0 mt-0.5">{theme.code}</span>
+                <span className="text-gray-700 text-sm flex-1 min-w-0">{theme.label || theme.description}</span>
+                <span className="text-sm text-blue-600 font-medium flex-shrink-0 whitespace-nowrap">
+                  {theme.direct_count}
                 </span>
               </div>
             ))}
@@ -219,7 +217,7 @@ function OverviewPanel() {
       {/* Quick Actions */}
       <div className="bg-blue-50 rounded-lg p-6">
         <h3 className="text-lg font-semibold text-blue-900 mb-4">Quick Actions</h3>
-        <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-4 gap-4">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3 sm:gap-4">
           <Link
             to="/themes"
             className="flex items-center justify-between p-4 bg-white rounded-lg hover:shadow-md transition-shadow"

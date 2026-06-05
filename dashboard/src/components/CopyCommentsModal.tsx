@@ -1,14 +1,16 @@
 import { useState, useEffect } from 'react'
-import { X, Copy, Check } from 'lucide-react'
-import { Comment, ThemeSummary } from '../types'
+import { X, Copy, Check, Download, Share2 } from 'lucide-react'
+import { Comment, ThemeSummary, ThemeExtract } from '../types'
 
 interface CopyCommentsModalProps {
   isOpen: boolean
   onClose: () => void
   title: string
+  contextKey?: string // Unique key per context (e.g., "theme", "entity", "search") for persisting checkbox state
   leadInContent?: string // Theme description, entity definition, etc.
   comments: Comment[]
   themeSummary?: ThemeSummary // Optional theme summary sections
+  themeExtracts?: { [commentId: string]: ThemeExtract } // Per-comment theme-specific extracts
   commentSectionOptions?: CommentSectionOptions // Override default sections
 }
 
@@ -20,6 +22,7 @@ export interface CommentSectionOptions {
   mainConcerns: boolean
   notableExperiences: boolean
   keyQuotations: boolean
+  themeExtracts: boolean
   detailedContent: boolean
   themes: boolean
   entities: boolean
@@ -32,7 +35,8 @@ const defaultCommentSections: CommentSectionOptions = {
   keyRecommendations: false,
   mainConcerns: false,
   notableExperiences: false,
-  keyQuotations: false,
+  keyQuotations: true,
+  themeExtracts: true,
   detailedContent: false,
   themes: true,
   entities: true
@@ -49,18 +53,33 @@ interface ThemeSummarySectionOptions {
   analyticalNotes: boolean
 }
 
-function CopyCommentsModal({ 
-  isOpen, 
-  onClose, 
+function loadSavedSections<T>(storageKey: string, defaults: T): T {
+  try {
+    const saved = localStorage.getItem(storageKey)
+    if (saved) {
+      const parsed = JSON.parse(saved)
+      // Merge with defaults so new keys get their default value
+      return { ...defaults, ...parsed }
+    }
+  } catch (_) {}
+  return defaults
+}
+
+function CopyCommentsModal({
+  isOpen,
+  onClose,
   title,
+  contextKey,
   leadInContent,
   comments,
   themeSummary,
+  themeExtracts,
   commentSectionOptions = defaultCommentSections
 }: CopyCommentsModalProps) {
-  const [copied, setCopied] = useState(false)
-  const [commentSections, setCommentSections] = useState<CommentSectionOptions>(commentSectionOptions)
-  const [themeSections, setThemeSections] = useState<ThemeSummarySectionOptions>({
+  const commentStorageKey = contextKey ? `copy-modal-comments-${contextKey}` : ''
+  const themeStorageKey = contextKey ? `copy-modal-theme-${contextKey}` : ''
+
+  const defaultThemeSections: ThemeSummarySectionOptions = {
     executiveSummary: false,
     consensusPoints: false,
     areasOfDebate: false,
@@ -69,7 +88,15 @@ function CopyCommentsModal({
     emergingPatterns: false,
     keyQuotations: false,
     analyticalNotes: false
-  })
+  }
+
+  const [copied, setCopied] = useState(false)
+  const [commentSections, setCommentSections] = useState<CommentSectionOptions>(
+    () => commentStorageKey ? loadSavedSections(commentStorageKey, commentSectionOptions) : commentSectionOptions
+  )
+  const [themeSections, setThemeSections] = useState<ThemeSummarySectionOptions>(
+    () => themeStorageKey ? loadSavedSections(themeStorageKey, defaultThemeSections) : defaultThemeSections
+  )
 
   useEffect(() => {
     if (!isOpen) {
@@ -77,9 +104,19 @@ function CopyCommentsModal({
     }
   }, [isOpen])
 
+  // Persist comment section choices
   useEffect(() => {
-    setCommentSections(commentSectionOptions)
-  }, [commentSectionOptions])
+    if (commentStorageKey) {
+      localStorage.setItem(commentStorageKey, JSON.stringify(commentSections))
+    }
+  }, [commentSections, commentStorageKey])
+
+  // Persist theme summary section choices
+  useEffect(() => {
+    if (themeStorageKey) {
+      localStorage.setItem(themeStorageKey, JSON.stringify(themeSections))
+    }
+  }, [themeSections, themeStorageKey])
 
   if (!isOpen) return null
 
@@ -115,6 +152,7 @@ function CopyCommentsModal({
       mainConcerns: !allChecked,
       notableExperiences: !allChecked,
       keyQuotations: !allChecked,
+      themeExtracts: !allChecked,
       detailedContent: !allChecked,
       themes: !allChecked,
       entities: !allChecked
@@ -168,10 +206,36 @@ function CopyCommentsModal({
       contentParts.push(`**Key Quotations:**\n${sections.keyQuotations}`)
     }
     
+    // Theme-specific extracts (per-comment, per-theme analysis)
+    if (commentSections.themeExtracts && themeExtracts) {
+      const extract = themeExtracts[comment.id]
+      if (extract) {
+        const extractParts: string[] = []
+        if (extract.positions?.length) {
+          extractParts.push(`**Positions:**\n${extract.positions.map(p => `- ${p}`).join('\n')}`)
+        }
+        if (extract.concerns?.length) {
+          extractParts.push(`**Concerns:**\n${extract.concerns.map(c => `- ${c}`).join('\n')}`)
+        }
+        if (extract.recommendations?.length) {
+          extractParts.push(`**Recommendations:**\n${extract.recommendations.map(r => `- ${r}`).join('\n')}`)
+        }
+        if (extract.experiences?.length) {
+          extractParts.push(`**Experiences:**\n${extract.experiences.map(e => `- ${e}`).join('\n')}`)
+        }
+        if (extract.key_quotes?.length) {
+          extractParts.push(`**Key Quotes:**\n${extract.key_quotes.map(q => `- ${q}`).join('\n')}`)
+        }
+        if (extractParts.length > 0) {
+          contentParts.push(`### Theme-Specific Analysis\n${extractParts.join('\n\n')}`)
+        }
+      }
+    }
+
     if (commentSections.detailedContent && sections.detailedContent) {
       contentParts.push(`**Detailed Content:**\n${sections.detailedContent}`)
     }
-    
+
     // Themes
     if (commentSections.themes && comment.themeScores) {
       const directThemes = Object.entries(comment.themeScores)
@@ -318,7 +382,46 @@ function CopyCommentsModal({
       setTimeout(() => setCopied(false), 2000)
     } catch (err) {
       console.error('Failed to copy:', err)
+      // Fallback: trigger share/download if clipboard fails
+      handleExport()
     }
+  }
+
+  const hasShareApi = typeof navigator.share === 'function'
+
+  const handleExport = async () => {
+    const content = buildContent()
+    const filename = `comments-${comments.length}-export.md`
+
+    if (hasShareApi) {
+      // Try file share first (iOS Safari, newer Android)
+      try {
+        const file = new File([content], filename, { type: 'text/plain;charset=utf-8' })
+        if (navigator.canShare?.({ files: [file] })) {
+          await navigator.share({ files: [file], title: filename })
+          return
+        }
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') return
+      }
+      // Fall back to text-only share (Android Chrome, etc.)
+      try {
+        await navigator.share({ title: filename, text: content })
+        return
+      } catch (e) {
+        if ((e as Error).name === 'AbortError') return
+      }
+    }
+    // Final fallback: download
+    const blob = new Blob([content], { type: 'text/plain;charset=utf-8' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = filename
+    document.body.appendChild(a)
+    a.click()
+    document.body.removeChild(a)
+    URL.revokeObjectURL(url)
   }
 
   return (
@@ -330,21 +433,21 @@ function CopyCommentsModal({
       />
       
       {/* Modal content */}
-      <div className="fixed inset-0 z-50 flex items-center justify-center p-4" onClick={onClose}>
-        <div className="bg-white rounded-lg shadow-xl max-w-2xl w-full max-h-[80vh] overflow-hidden" onClick={(e)=>e.stopPropagation()}>
+      <div className="fixed inset-0 z-50 flex items-end sm:items-center justify-center sm:p-4" onClick={onClose}>
+        <div className="bg-white rounded-t-xl sm:rounded-lg shadow-xl max-w-2xl w-full max-h-[85vh] sm:max-h-[80vh] flex flex-col mx-0 sm:mx-auto" onClick={(e)=>e.stopPropagation()}>
           {/* Header */}
-          <div className="flex items-center justify-between p-6 border-b border-gray-200">
-            <h2 className="text-xl font-semibold text-gray-900">{title}</h2>
+          <div className="flex items-center justify-between p-4 sm:p-6 border-b border-gray-200 flex-shrink-0">
+            <h2 className="text-lg sm:text-xl font-semibold text-gray-900 pr-4">{title}</h2>
             <button
               onClick={onClose}
-              className="text-gray-400 hover:text-gray-600 transition-colors"
+              className="text-gray-400 hover:text-gray-600 transition-colors flex-shrink-0"
             >
               <X className="h-5 w-5" />
             </button>
           </div>
           
           {/* Content */}
-          <div className="p-6 overflow-y-auto max-h-[60vh]">
+          <div className="p-4 sm:p-6 overflow-y-auto flex-1 min-h-0">
             <div className="space-y-4">
               <div>
                 <p className="text-sm text-gray-500">
@@ -582,7 +685,21 @@ function CopyCommentsModal({
                     <span className="text-sm text-gray-700">Key Quotations</span>
                   </label>
                   
-                  <label 
+                  {themeExtracts && (
+                    <label
+                      className="flex items-center space-x-3 cursor-pointer"
+                    >
+                      <input
+                        type="checkbox"
+                        checked={commentSections.themeExtracts}
+                        onChange={() => handleCommentSectionToggle('themeExtracts')}
+                        className="h-4 w-4 text-blue-600 focus:ring-blue-500 border-gray-300 rounded"
+                      />
+                      <span className="text-sm text-gray-700">Theme-Specific Extracts (positions, concerns, recommendations)</span>
+                    </label>
+                  )}
+
+                  <label
                     className="flex items-center space-x-3 cursor-pointer"
                   >
                     <input
@@ -623,16 +740,26 @@ function CopyCommentsModal({
           </div>
           
           {/* Footer */}
-          <div className="flex items-center justify-end space-x-3 p-6 border-t border-gray-200">
+          <div className="flex items-center justify-end space-x-2 sm:space-x-3 p-3 sm:p-4 border-t border-gray-200 flex-shrink-0 bg-white">
             <button
               onClick={onClose}
-              className="px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors"
+              className="px-3 sm:px-4 py-2 text-gray-700 bg-gray-100 hover:bg-gray-200 rounded-lg transition-colors text-sm"
             >
               Cancel
             </button>
             <button
+              onClick={handleExport}
+              className="flex items-center space-x-1.5 px-3 sm:px-4 py-2 bg-gray-700 hover:bg-gray-800 text-white rounded-lg transition-colors text-sm"
+              title={hasShareApi ? 'Share as file' : 'Download as file'}
+            >
+              {hasShareApi ? <Share2 className="h-4 w-4" /> : <Download className="h-4 w-4" />}
+              <span className="hidden sm:inline">{hasShareApi ? 'Share' : 'Download'}</span>
+              <span className="sm:hidden">{hasShareApi ? 'Share' : '.md'}</span>
+            </button>
+            <button
               onClick={handleCopy}
-              className="flex items-center space-x-2 px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors"
+              className="flex items-center space-x-1.5 px-3 sm:px-4 py-2 bg-blue-600 hover:bg-blue-700 text-white rounded-lg transition-colors text-sm"
+              title="Copy to clipboard"
             >
               {copied ? (
                 <>
@@ -642,7 +769,7 @@ function CopyCommentsModal({
               ) : (
                 <>
                   <Copy className="h-4 w-4" />
-                  <span>Copy to Clipboard</span>
+                  <span className="hidden sm:inline">Copy</span>
                 </>
               )}
             </button>

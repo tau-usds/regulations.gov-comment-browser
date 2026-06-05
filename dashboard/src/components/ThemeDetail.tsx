@@ -9,12 +9,13 @@ import CopyCommentsModal from './CopyCommentsModal'
 
 function ThemeDetail() {
   const { themeCode } = useParams<{ themeCode: string }>()
-  const { themes, themeSummaries, getCommentsForTheme } = useStore()
+  const { themes, themeSummaries, getCommentsForTheme, themeExtracts } = useStore()
   const [showCopyModal, setShowCopyModal] = useState(false)
   
   const theme = themes.find(t => t.code === themeCode)
   const themeSummary = themeCode ? themeSummaries[themeCode] : undefined
   const { direct } = themeCode ? getCommentsForTheme(themeCode) : { direct: [] }
+  const extracts = themeCode ? themeExtracts[themeCode] || {} : {}
   
   // Filter to only show representative comments (or all if no clustering)
   const displayedComments = direct.filter(c => 
@@ -72,14 +73,14 @@ function ThemeDetail() {
       
       {/* Header */}
       <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
-        <div className="px-6 py-4 border-b border-gray-200 bg-gray-50">
-          <div className="flex justify-between items-start">
-            <div className="flex-1">
-              <div className="flex items-center space-x-4 mb-2">
-                <h2 className="text-2xl font-bold text-gray-900">
+        <div className="px-4 sm:px-6 py-4 border-b border-gray-200 bg-gray-50">
+          <div className="flex flex-col sm:flex-row sm:justify-between sm:items-start gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-baseline flex-wrap gap-2 sm:gap-3 mb-2">
+                <h2 className="text-xl sm:text-2xl font-bold text-gray-900">
                   {theme.code}
                   {theme.label && (
-                    <span className="text-gray-700 font-medium ml-3">{theme.label}</span>
+                    <span className="text-gray-700 font-medium ml-2 sm:ml-3">{theme.label}</span>
                   )}
                 </h2>
                 <span className="px-3 py-1 bg-blue-100 text-blue-800 rounded-full text-sm font-medium whitespace-nowrap">
@@ -105,10 +106,10 @@ function ThemeDetail() {
               )}
             </div>
             
-            <div className="flex items-center space-x-2">
+            <div className="flex items-center space-x-2 flex-shrink-0">
               <button
                 onClick={() => setShowCopyModal(true)}
-                className="flex items-center space-x-2 px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors"
+                className="flex items-center space-x-2 px-3 sm:px-4 py-2 bg-purple-600 hover:bg-purple-700 text-white rounded-lg transition-colors text-sm"
                 title="Copy theme and comments for LLM"
               >
                 <FileText className="h-4 w-4" />
@@ -116,7 +117,7 @@ function ThemeDetail() {
               </button>
               <button
                 onClick={handleCopyIds}
-                className="flex items-center space-x-2 px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors"
+                className="flex items-center space-x-2 px-3 sm:px-4 py-2 bg-gray-100 hover:bg-gray-200 text-gray-700 rounded-lg transition-colors text-sm"
                 title="Copy all comment IDs"
               >
                 <Copy className="h-4 w-4" />
@@ -213,11 +214,13 @@ function ThemeDetail() {
         {displayedComments.length > 0 ? (
           <div className="space-y-4">
             {displayedComments.map(comment => (
-              <CommentCard 
-                key={comment.id} 
-                comment={comment} 
+              <CommentCard
+                key={comment.id}
+                comment={comment}
                 showThemes={false}
                 showEntities={false}
+                themeExtract={extracts[comment.id]}
+                themeCode={themeCode}
               />
             ))}
           </div>
@@ -231,9 +234,11 @@ function ThemeDetail() {
         isOpen={showCopyModal}
         onClose={() => setShowCopyModal(false)}
         title="Copy Theme Comments for LLM"
+        contextKey="theme"
         leadInContent={`# Theme Analysis: ${theme.code} - ${theme.label || theme.description}${theme.detailedDescription ? '\n\n## Theme Description\n' + theme.detailedDescription : ''}`}
         comments={displayedComments}
         themeSummary={themeSummary}
+        themeExtracts={extracts}
         commentSectionOptions={{
           metadata: true,
           oneLineSummary: false,
@@ -242,7 +247,8 @@ function ThemeDetail() {
           mainConcerns: false,
           notableExperiences: false,
           keyQuotations: false,
-          detailedContent: true,
+          themeExtracts: true,
+          detailedContent: false,
           themes: false,
           entities: false
         }}

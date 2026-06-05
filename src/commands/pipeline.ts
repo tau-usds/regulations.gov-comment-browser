@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { basename, extname } from "path";
 import { loadCommentsCommand } from "./load-comments";
 import { clusterCommentsFastCommand } from "./cluster-comments-fast";
+import { transcribeCommand } from "./transcribe";
 import { condenseCommand } from "./condense";
 import { discoverThemesCommand } from "./discover-themes";
 import { extractThemeContentCommand } from "./extract-theme-content";
@@ -19,7 +20,7 @@ export const pipelineCommand = new Command("pipeline")
   .option("-d, --debug", "Enable debug mode for all steps")
   .option("-o, --output <dir>", "Output directory for website files", "dist/data")
   .option("-l, --limit-total-comment-load <N>", "Limit initial number of comments loaded")
-  .option("--start-at <step>", "Start at a specific step (1-9): 1=load, 2=cluster, 3=condense, 4=discover-themes, 5=extract-theme-content, 6=summarize-themes, 7=discover-entities, 8=build-website, 9=vacuum-db")
+  .option("--start-at <step>", "Start at a specific step (1-10): 1=load, 2=cluster, 3=transcribe, 4=condense, 5=discover-themes, 6=extract-theme-content, 7=summarize-themes, 8=discover-entities, 9=build-website, 10=vacuum-db")
   .option("-c, --concurrency <N>", "Number of concurrent operations")
   .option("--max-crashes <N>", "Maximum number of crashes before giving up (default: 10)", parseInt)
   .option("-m, --model <model>", "AI model to use (gemini-pro, gemini-flash, gemini-flash-lite, claude)")
@@ -63,7 +64,7 @@ export const pipelineCommand = new Command("pipeline")
         name: "Clustering comments",
         icon: "🔗",
         execute: async () => {
-          if (options.noClustering) {
+          if (!options.clustering) {
             console.log("⏭️  Skipping clustering (--no-clustering flag)");
             return;
           }
@@ -89,6 +90,21 @@ export const pipelineCommand = new Command("pipeline")
       },
       {
         num: 3,
+        name: "Transcribing comments",
+        icon: "📜",
+        execute: async () => {
+          await transcribeCommand.parseAsync([
+            'bun', 'cli.ts', 
+            documentId,
+            ...(options.debug ? ['--debug'] : []),
+            ...(options.concurrency ? ['--concurrency', options.concurrency] : []),
+            ...(options.model ? ['--model', options.model] : []),
+            ...(!!options.clustering ? ['--use-clustering'] : []),
+          ]);
+        }
+      },
+      {
+        num: 4,
         name: "Condensing comments",
         icon: "📝",
         execute: async () => {
@@ -98,12 +114,11 @@ export const pipelineCommand = new Command("pipeline")
             ...(options.debug ? ['--debug'] : []),
             ...(options.concurrency ? ['--concurrency', options.concurrency] : []),
             ...(options.model ? ['--model', options.model] : []),
-            ...(!options.noClustering ? ['--use-clustering'] : []),
           ]);
         }
       },
       {
-        num: 4,
+        num: 5,
         name: "Discovering themes",
         icon: "🔍",
         execute: async () => {
@@ -113,12 +128,12 @@ export const pipelineCommand = new Command("pipeline")
             ...(options.debug ? ['--debug'] : []),
             ...(options.concurrency ? ['--concurrency', options.concurrency] : []),
             ...(options.model ? ['--model', options.model] : []),
-            ...(!options.noClustering ? ['--use-clustering'] : []),
+            ...(!!options.clustering ? ['--use-clustering'] : []),
           ]);
         }
       },
       {
-        num: 5,
+        num: 6,
         name: "Extracting theme content",
         icon: "🎯",
         execute: async () => {
@@ -128,12 +143,12 @@ export const pipelineCommand = new Command("pipeline")
             ...(options.debug ? ['--debug'] : []),
             ...(options.concurrency ? ['--concurrency', options.concurrency] : []),
             ...(options.model ? ['--model', options.model] : []),
-            ...(!options.noClustering ? ['--use-clustering'] : []),
+            ...(!!options.clustering ? ['--use-clustering'] : []),
           ]);
         }
       },
       {
-        num: 6,
+        num: 7,
         name: "Summarizing themes",
         icon: "📄",
         execute: async () => {
@@ -143,12 +158,12 @@ export const pipelineCommand = new Command("pipeline")
             ...(options.debug ? ['--debug'] : []),
             ...(options.concurrency ? ['--concurrency', options.concurrency] : []),
             ...(options.model ? ['--model', options.model] : []),
-            ...(!options.noClustering ? ['--use-clustering'] : []),
+            ...(!!options.clustering ? ['--use-clustering'] : []),
           ]);
         }
       },
       {
-        num: 7,
+        num: 8,
         name: "Discovering entities",
         icon: "🏷️",
         execute: async () => {
@@ -156,13 +171,12 @@ export const pipelineCommand = new Command("pipeline")
             'bun', 'cli.ts', 
             documentId,
             ...(options.debug ? ['--debug'] : []),
-            ...(options.concurrency ? ['--concurrency', options.concurrency] : []),
             ...(options.model ? ['--model', options.model] : []),
           ]);
         }
       },
       {
-        num: 8,
+        num: 9,
         name: "Building website files",
         icon: "🏗️",
         execute: async () => {
@@ -174,7 +188,7 @@ export const pipelineCommand = new Command("pipeline")
         }
       },
       {
-        num: 9,
+        num: 10,
         name: "Vacuuming database",
         icon: "🧹",
         execute: async () => {

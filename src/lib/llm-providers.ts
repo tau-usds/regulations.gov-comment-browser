@@ -1,4 +1,4 @@
-import { GoogleGenAI } from "@google/genai";
+import { GoogleGenAI, type Part } from "@google/genai";
 import { debugStreamStart, debugStreamWrite, debugStreamEnd } from "./debug";
 
 // Simple provider functions that just handle the generation call
@@ -6,6 +6,17 @@ import { debugStreamStart, debugStreamWrite, debugStreamEnd } from "./debug";
 
 export interface StreamingOptions {
   debugFilename?: string;
+}
+
+export interface UsageMetadata {
+  promptTokenCount: number;
+  cachedContentTokenCount: number;
+  candidatesTokenCount: number;
+}
+
+export interface GenerationResult {
+  text: string;
+  usageMetadata?: UsageMetadata;
 }
 
 // Helper to handle streaming with optional debug
@@ -55,7 +66,7 @@ export async function generateWithGeminiPro(prompt: string, options?: StreamingO
   }];
   
   const response = await ai.models.generateContentStream({
-    model: "gemini-2.5-pro-preview-06-05",
+    model: "gemini-2.5-pro",
     config,
     contents,
   });
@@ -83,7 +94,7 @@ export async function generateWithGeminiFlash(prompt: string, options?: Streamin
   }];
   
   const response = await ai.models.generateContentStream({
-    model: "gemini-2.5-flash-preview-05-20",
+    model: "gemini-2.5-flash",
     config,
     contents,
   });
@@ -111,12 +122,107 @@ export async function generateWithGeminiFlashLite(prompt: string, options?: Stre
   }];
   
   const response = await ai.models.generateContentStream({
-    model: "gemini-2.5-flash-lite-preview-06-17",
+    model: "gemini-2.5-flash-lite",
     config,
     contents,
   });
   
   return processStream(response, chunk => chunk.text || '', options);
+}
+
+export async function generateWithGemini3Flash(prompt: string, options?: StreamingOptions): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY environment variable is required");
+  }
+  
+  const ai = new GoogleGenAI({ apiKey });
+  
+  const config = { 
+    responseMimeType: "text/plain",
+  };
+  const contents = [{
+    role: "user" as const,
+    parts: [{ text: prompt }]
+  }];
+  
+  const MAX_RETRIES = 5;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const response = await ai.models.generateContentStream({
+        model: "gemini-3-flash-preview",
+        config,
+        contents,
+      });
+      return await processStream(response, chunk => chunk.text || '', options);
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if ((msg.includes('429') || msg.includes('503')) && attempt < MAX_RETRIES - 1) {
+        const backoff = Math.min(5000 * Math.pow(2, attempt), 60000);
+        console.log(`   \ud83d\udd04 Gemini ${msg.includes('429') ? '429' : '503'}, retrying in ${(backoff/1000).toFixed(0)}s (attempt ${attempt+1}/${MAX_RETRIES})...`);
+        await new Promise(r => setTimeout(r, backoff));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('Max retries exceeded for gemini-3-flash');
+}
+
+// Non-streaming variant that returns usage metadata for cache monitoring
+export async function generateWithGemini3FlashWithMetadata(prompt: string, options?: StreamingOptions): Promise<GenerationResult> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY environment variable is required");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  const config = {
+    responseMimeType: "text/plain" as const,
+  };
+  const contents = [{
+    role: "user" as const,
+    parts: [{ text: prompt }]
+  }];
+
+  const MAX_RETRIES = 5;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const response = await ai.models.generateContent({
+        model: "gemini-3-flash-preview",
+        config,
+        contents,
+      });
+
+      const text = response.text || '';
+
+      // Save to debug file if requested
+      if (options?.debugFilename) {
+        debugStreamStart(options.debugFilename);
+        debugStreamWrite(options.debugFilename, text);
+        debugStreamEnd(options.debugFilename);
+      }
+
+      const usageMetadata = response.usageMetadata ? {
+        promptTokenCount: response.usageMetadata.promptTokenCount || 0,
+        cachedContentTokenCount: (response.usageMetadata as any).cachedContentTokenCount || 0,
+        candidatesTokenCount: response.usageMetadata.candidatesTokenCount || 0,
+      } : undefined;
+
+      return { text, usageMetadata };
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if ((msg.includes('429') || msg.includes('503')) && attempt < MAX_RETRIES - 1) {
+        const backoff = Math.min(5000 * Math.pow(2, attempt), 60000);
+        console.log(`   🔄 Gemini ${msg.includes('429') ? '429' : '503'}, retrying in ${(backoff/1000).toFixed(0)}s (attempt ${attempt+1}/${MAX_RETRIES})...`);
+        await new Promise(r => setTimeout(r, backoff));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('Max retries exceeded for gemini-3-flash-with-metadata');
 }
 
 export async function generateWithClaude(prompt: string, options?: StreamingOptions): Promise<string> {
@@ -161,12 +267,68 @@ export async function generateWithClaude(prompt: string, options?: StreamingOpti
   return result;
 }
 
+// Multimodal generation (accepts Part[] with inline binary data)
+export type MultimodalGenerationFunction = (parts: Part[], options?: StreamingOptions) => Promise<string>;
+
+export async function generateMultimodalGemini3Flash(parts: Part[], options?: StreamingOptions): Promise<string> {
+  const apiKey = process.env.GEMINI_API_KEY;
+  if (!apiKey) {
+    throw new Error("GEMINI_API_KEY environment variable is required");
+  }
+
+  const ai = new GoogleGenAI({ apiKey });
+
+  const config = {
+    responseMimeType: "text/plain" as const,
+  };
+  const contents = [{
+    role: "user" as const,
+    parts,
+  }];
+
+  const MAX_RETRIES = 5;
+  for (let attempt = 0; attempt < MAX_RETRIES; attempt++) {
+    try {
+      const response = await ai.models.generateContentStream({
+        model: "gemini-3-flash-preview",
+        config,
+        contents,
+      });
+      return await processStream(response, chunk => chunk.text || '', options);
+    } catch (err: any) {
+      const msg = err?.message || String(err);
+      if ((msg.includes('429') || msg.includes('503')) && attempt < MAX_RETRIES - 1) {
+        const backoff = Math.min(5000 * Math.pow(2, attempt), 60000);
+        console.log(`   \uD83D\uDD04 Gemini ${msg.includes('429') ? '429' : '503'}, retrying in ${(backoff/1000).toFixed(0)}s (attempt ${attempt+1}/${MAX_RETRIES})...`);
+        await new Promise(r => setTimeout(r, backoff));
+        continue;
+      }
+      throw err;
+    }
+  }
+  throw new Error('Max retries exceeded for gemini-3-flash multimodal');
+}
+
+// Map of model names to multimodal generation functions
+export const MULTIMODAL_FUNCTIONS: Record<string, MultimodalGenerationFunction> = {
+  "gemini-3-flash": generateMultimodalGemini3Flash,
+};
+
+export function getMultimodalGenerationFunction(model: string): MultimodalGenerationFunction {
+  const fn = MULTIMODAL_FUNCTIONS[model];
+  if (!fn) {
+    throw new Error(`No multimodal support for model: ${model}. Available: ${Object.keys(MULTIMODAL_FUNCTIONS).join(", ")}`);
+  }
+  return fn;
+}
+
 // Map of model names to generation functions
 export const MODEL_FUNCTIONS = {
   "gemini-pro": generateWithGeminiPro,
   "gemini-flash": generateWithGeminiFlash,
   "gemini-flash-lite": generateWithGeminiFlashLite,
-  "claude": generateWithClaude
+  "claude": generateWithClaude,
+  "gemini-3-flash": generateWithGemini3Flash
 } as const;
 
 export type ModelName = keyof typeof MODEL_FUNCTIONS;
@@ -174,7 +336,7 @@ export type ModelName = keyof typeof MODEL_FUNCTIONS;
 export type GenerationFunction = (prompt: string, options?: StreamingOptions) => Promise<string>;
 
 // Get the appropriate generation function based on model selection
-export function getGenerationFunction(model: string = "gemini-pro"): GenerationFunction {
+export function getGenerationFunction(model: string = "gemini-3-flash"): GenerationFunction {
   const fn = MODEL_FUNCTIONS[model as ModelName];
   if (!fn) {
     throw new Error(`Unknown model: ${model}. Available: ${Object.keys(MODEL_FUNCTIONS).join(", ")}`);

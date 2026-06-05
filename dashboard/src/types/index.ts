@@ -55,6 +55,18 @@ export interface ThemeSummary {
       specificPoints: string[]
       commentIds?: string[] | null
     }> | null
+    keyRecommendations?: Array<{
+      approach: string
+      recommendation: string
+      supportLevel?: string | null
+      commentIds?: string[] | null
+    }> | null
+    majorConcerns?: Array<{
+      concern: string
+      raisedBy: string
+      evidence?: string | null
+      commentIds?: string[] | null
+    }> | null
     noteworthyInsights?: Array<{
       insight: string
       commentId?: string | null
@@ -122,6 +134,20 @@ export interface Comment {
   isClusterRepresentative?: boolean
   clusterRepresentativeId?: string | null
   isAlignedSummary?: boolean
+}
+
+export interface ThemeExtract {
+  positions?: string[]
+  concerns?: string[]
+  recommendations?: string[]
+  key_quotes?: string[]
+  experiences?: string[]
+}
+
+export interface ThemeExtractsMap {
+  [themeCode: string]: {
+    [commentId: string]: ThemeExtract
+  }
 }
 
 export interface ThemeIndex {

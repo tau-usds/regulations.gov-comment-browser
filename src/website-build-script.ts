@@ -19,9 +19,15 @@ async function buildWebsite(documentId: string, options: any) {
   await mkdir(outputDir, { recursive: true });
   await mkdir(join(outputDir, "indexes"), { recursive: true });
   
+  // Look up docket ID from DB metadata (falls back to document ID)
+  const docMeta = db.prepare("SELECT docket_id, title FROM document_metadata LIMIT 1").get() as { docket_id?: string; title?: string } | null;
+  const docketId = docMeta?.docket_id || documentId;
+
   // 1. Generate metadata
   const meta = {
-    documentId,
+    documentId: docketId,
+    sourceDocumentId: documentId,
+    title: docMeta?.title || documentId,
     generatedAt: new Date().toISOString(),
     stats: getStats(db),
   };
@@ -40,14 +46,17 @@ async function buildWebsite(documentId: string, options: any) {
   await writeJson(join(outputDir, "entities.json"), entities);
   
   // 5. Export all comments as single file
-  await exportAllComments(db, outputDir, documentId);
+  await exportAllComments(db, outputDir, docketId);
   
   // 6. Generate cluster report
   await generateClusterReport(db, outputDir);
   
   // 7. Generate indexes for efficient lookups
   await generateIndexes(db, outputDir);
-  
+
+  // 8. Export theme extracts (per-comment, per-theme analysis)
+  await exportThemeExtracts(db, outputDir);
+
   console.log(`✅ Website data built in ${outputDir}`);
   db.close();
 }
@@ -319,6 +328,7 @@ async function exportAllComments(db: any, outputDir: string, documentId: string)
         c.id,
         c.attributes_json,
         COALESCE(cc.structured_sections, cc_rep.structured_sections) as structured_sections,
+        COALESCE(t.markdown, t_rep.markdown) as transcription_markdown,
         COALESCE(cc.word_count, cc_rep.word_count) as word_count,
         GROUP_CONCAT(DISTINCT cte.theme_code) as theme_codes,
         GROUP_CONCAT(DISTINCT ce.category || '|' || ce.entity_label) as entities,
@@ -329,9 +339,11 @@ async function exportAllComments(db: any, outputDir: string, documentId: string)
         CASE WHEN cc.structured_sections IS NULL AND cc_rep.structured_sections IS NOT NULL THEN 1 ELSE 0 END as uses_representative_summary
       FROM comments c
       LEFT JOIN condensed_comments cc ON c.id = cc.comment_id
+      LEFT JOIN transcriptions t ON c.id = t.comment_id AND t.status = 'completed'
       LEFT JOIN comment_cluster_membership ccm ON c.id = ccm.comment_id
       LEFT JOIN comment_clusters ccl ON ccm.cluster_id = ccl.cluster_id
       LEFT JOIN condensed_comments cc_rep ON ccl.representative_comment_id = cc_rep.comment_id
+      LEFT JOIN transcriptions t_rep ON ccl.representative_comment_id = t_rep.comment_id AND t_rep.status = 'completed'
       LEFT JOIN comment_theme_extracts cte ON c.id = cte.comment_id
       LEFT JOIN comment_entities ce ON c.id = ce.comment_id
       LEFT JOIN attachments a ON c.id = a.comment_id
@@ -345,6 +357,7 @@ async function exportAllComments(db: any, outputDir: string, documentId: string)
         c.id,
         c.attributes_json,
         cc.structured_sections,
+        t.markdown as transcription_markdown,
         cc.word_count,
         GROUP_CONCAT(DISTINCT cte.theme_code) as theme_codes,
         GROUP_CONCAT(DISTINCT ce.category || '|' || ce.entity_label) as entities,
@@ -353,6 +366,7 @@ async function exportAllComments(db: any, outputDir: string, documentId: string)
         NULL as is_representative
       FROM comments c
       LEFT JOIN condensed_comments cc ON c.id = cc.comment_id
+      LEFT JOIN transcriptions t ON c.id = t.comment_id AND t.status = 'completed'
       LEFT JOIN comment_theme_extracts cte ON c.id = cte.comment_id
       LEFT JOIN comment_entities ce ON c.id = ce.comment_id
       LEFT JOIN attachments a ON c.id = a.comment_id
@@ -396,6 +410,12 @@ async function exportAllComments(db: any, outputDir: string, documentId: string)
       }
     }
     
+    // Use transcription as detailedContent
+    if (c.transcription_markdown) {
+      if (!structuredSections) structuredSections = {};
+      structuredSections.detailedContent = c.transcription_markdown;
+    }
+    
     return {
       id: c.id,
       documentId,
@@ -409,7 +429,7 @@ async function exportAllComments(db: any, outputDir: string, documentId: string)
       hasAttachments: c.attachment_count > 0,
       wordCount,
       clusterSize: c.cluster_size || 1,
-      isClusterRepresentative: c.is_representative === 1,
+      isClusterRepresentative: c.is_representative == null ? undefined : c.is_representative === 1,
       clusterRepresentativeId: c.cluster_representative_id || null,
       isAlignedSummary: c.uses_representative_summary === 1,
     };
@@ -520,6 +540,49 @@ async function generateIndexes(db: any, outputDir: string) {
   }
   
   await writeJson(join(outputDir, "indexes", "entity-comments.json"), entityMap);
+}
+
+async function exportThemeExtracts(db: any, outputDir: string) {
+  console.log("  📋 Exporting theme extracts...");
+
+  // Check if the table exists
+  const hasTable = db.prepare(`
+    SELECT name FROM sqlite_master
+    WHERE type='table' AND name='comment_theme_extracts'
+  `).get();
+
+  if (!hasTable) {
+    console.log("  ⏭️  No comment_theme_extracts table, skipping");
+    return;
+  }
+
+  const rows = db.prepare(`
+    SELECT theme_code, comment_id, extract_json
+    FROM comment_theme_extracts
+    ORDER BY theme_code, comment_id
+  `).all();
+
+  if (rows.length === 0) {
+    console.log("  ⏭️  No theme extracts found, skipping");
+    return;
+  }
+
+  const extractsMap: any = {};
+  for (const row of rows) {
+    if (!extractsMap[row.theme_code]) {
+      extractsMap[row.theme_code] = {};
+    }
+    try {
+      const parsed = JSON.parse(row.extract_json);
+      // Unwrap the { relevance, extract: { ... } } wrapper if present
+      extractsMap[row.theme_code][row.comment_id] = parsed.extract || parsed;
+    } catch (e) {
+      console.warn(`  ⚠️  Failed to parse extract for ${row.comment_id}/${row.theme_code}`);
+    }
+  }
+
+  await writeJson(join(outputDir, "theme-extracts.json"), extractsMap);
+  console.log(`  ✅ Exported theme extracts for ${Object.keys(extractsMap).length} themes (${rows.length} total extracts)`);
 }
 
 async function writeJson(path: string, data: any) {

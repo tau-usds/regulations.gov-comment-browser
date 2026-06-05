@@ -1,6 +1,7 @@
 import { create } from 'zustand'
-import type { Meta, Theme, Entity, Comment, ThemeIndex, EntityIndex, ThemeSummary } from '../types'
+import type { Meta, Theme, Entity, Comment, ThemeIndex, EntityIndex, ThemeSummary, ThemeExtractsMap } from '../types'
 import { parseThemeDescription } from '../utils/helpers'
+import { parseSearchQuery, matchesSearchQuery } from '../utils/searchParser'
 
 interface FilterOptions {
   themes: string[]
@@ -21,6 +22,7 @@ interface StoreState {
   searchQuery: string
   themeIndex: ThemeIndex
   entityIndex: EntityIndex
+  themeExtracts: ThemeExtractsMap
   organizationCategory: string | null
   
   // UI state
@@ -53,6 +55,7 @@ const useStore = create<StoreState>((set, get) => ({
   comments: [],
   themeIndex: {},
   entityIndex: {},
+  themeExtracts: {},
   organizationCategory: null,
   
   // UI state
@@ -86,7 +89,7 @@ const useStore = create<StoreState>((set, get) => ({
     set({ loading: true, error: null })
     
     try {
-      const [meta, themes, themeSummaries, entities, comments, themeIndex, entityIndex] = await Promise.all([
+      const [meta, themes, themeSummaries, entities, comments, themeIndex, entityIndex, themeExtracts] = await Promise.all([
         fetch('./data/meta.json').then(r => r.json()),
         fetch('./data/themes.json').then(r => r.json()),
         fetch('./data/theme-summaries.json').then(r => r.json()),
@@ -94,6 +97,7 @@ const useStore = create<StoreState>((set, get) => ({
         fetch('./data/comments.json').then(r => r.json()),
         fetch('./data/indexes/theme-comments.json').then(r => r.json()),
         fetch('./data/indexes/entity-comments.json').then(r => r.json()),
+        fetch('./data/theme-extracts.json').then(r => r.ok ? r.json() : {}).catch(() => ({})),
       ])
       
       // Parse theme descriptions
@@ -130,6 +134,7 @@ const useStore = create<StoreState>((set, get) => ({
         comments: commentsWithCounts,
         themeIndex,
         entityIndex,
+        themeExtracts,
         organizationCategory: orgCategory,
         loading: false,
         error: null,
@@ -152,28 +157,19 @@ const useStore = create<StoreState>((set, get) => ({
     }
     
     // Start with only representative comments (or all if no clustering)
-    let filtered = state.comments.filter(c => 
-      c.isClusterRepresentative === true || 
-      c.isClusterRepresentative === undefined // For databases without clustering
-    )
+    const hasAnyClustering = state.comments.some(c => c.isClusterRepresentative === true)
+    let filtered = hasAnyClustering
+      ? state.comments.filter(c => c.isClusterRepresentative === true)
+      : state.comments
     const originalCount = state.comments.length
     
-    // Apply search
+    // Apply search with boolean query parsing
     if (state.filters.searchQuery) {
-      const query = state.filters.searchQuery.toLowerCase()
-      filtered = filtered.filter(c => {
-        // Search in structured sections
-        const searchInSections = c.structuredSections ? (
-          c.structuredSections.oneLineSummary?.toLowerCase().includes(query) ||
-          c.structuredSections.corePosition?.toLowerCase().includes(query) ||
-          c.structuredSections.detailedContent?.toLowerCase().includes(query)
-        ) : false
-        
-        return searchInSections ||
-          c.submitter?.toLowerCase().includes(query) ||
-          c.id?.toLowerCase().includes(query)
-      })
-      console.log(`Search filter applied: ${originalCount} → ${filtered.length} (query: "${query}")`)
+      const tokens = parseSearchQuery(state.filters.searchQuery)
+      if (tokens.length > 0) {
+        filtered = filtered.filter(c => matchesSearchQuery(c, tokens))
+        console.log(`Search filter applied: ${originalCount} → ${filtered.length} (query: "${state.filters.searchQuery}")`)
+      }
     }
     
     // Apply theme filters

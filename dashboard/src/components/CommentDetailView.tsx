@@ -2,6 +2,7 @@ import { ExternalLink, Paperclip, Calendar, MapPin, User, Quote, Users } from 'l
 import { Link } from 'react-router-dom'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
+import remarkBreaks from 'remark-breaks'
 import { getRegulationsGovUrl, formatDate } from '../utils/helpers'
 import useStore from '../store/useStore'
 import type { Comment } from '../types'
@@ -25,63 +26,60 @@ function CommentDetailView({ comment }: CommentDetailViewProps) {
   return (
     <div className="bg-white rounded-lg shadow-sm border border-gray-200 overflow-hidden">
       {/* Header with Key Information */}
-      <div className="bg-gray-50 border-b border-gray-200 px-6 py-4">
-        <div className="flex justify-between items-start">
-          <div className="flex-1">
-            <div className="flex items-center space-x-2">
-              <User className="h-4 w-4 text-gray-500" />
-              <h4 className="font-semibold text-gray-900">{comment.submitter}</h4>
-              <span className="text-sm text-gray-600">• {comment.submitterType}</span>
-            </div>
-            
-            <div className="flex items-center space-x-4 mt-2 text-sm text-gray-600">
-              <span className="flex items-center space-x-1">
-                <Calendar className="h-3 w-3" />
-                <span>{formatDate(comment.date)}</span>
-              </span>
-              {comment.location && (
-                <span className="flex items-center space-x-1">
-                  <MapPin className="h-3 w-3" />
-                  <span>{comment.location}</span>
-                </span>
-              )}
-              {comment.hasAttachments && (
-                <span className="flex items-center space-x-1">
-                  <Paperclip className="h-3 w-3" />
-                  <span>Has attachments</span>
-                </span>
-              )}
-            </div>
+      <div className="bg-gray-50 border-b border-gray-200 px-4 sm:px-6 py-3 sm:py-4">
+        {/* Row 1: Author + actions */}
+        <div className="flex items-center justify-between gap-2">
+          <div className="flex items-center space-x-2 min-w-0 flex-1">
+            <User className="h-4 w-4 text-gray-500 flex-shrink-0" />
+            <h4 className="font-semibold text-gray-900 truncate">{comment.submitter}</h4>
+            <span className="text-sm text-gray-600 flex-shrink-0 hidden sm:inline">• {comment.submitterType}</span>
           </div>
-          
-          <div className="flex items-center space-x-3">
+          <div className="flex items-center space-x-2 sm:space-x-3 flex-shrink-0">
             {/* Cluster Badge */}
             {comment.clusterSize && comment.clusterSize > 1 && comment.isClusterRepresentative && (
-              <span 
-                className="inline-flex items-center gap-1 px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800"
+              <span
+                className="inline-flex items-center gap-1 px-2 sm:px-3 py-1 rounded-full text-xs font-medium bg-purple-100 text-purple-800"
                 title={`This comment represents ${comment.clusterSize} aligned submissions`}
               >
                 <Users className="h-3 w-3" />
-                {comment.clusterSize > 100 ? (
-                  <span>{comment.clusterSize} aligned comments</span>
-                ) : (
-                  <span>+{comment.clusterSize - 1} similar</span>
-                )}
+                <span className="hidden sm:inline">{comment.clusterSize > 100 ? `${comment.clusterSize} aligned` : `+${comment.clusterSize - 1} similar`}</span>
+                <span className="sm:hidden">{comment.clusterSize}</span>
               </span>
             )}
-            <span className="text-xs font-mono text-gray-500 bg-gray-200 px-2 py-1 rounded">
-              #{comment.id}
-            </span>
             <a
               href={regulationsUrl}
               target="_blank"
               rel="noopener noreferrer"
-              className="text-blue-600 hover:text-blue-800 transition-colors"
+              className="text-blue-600 hover:text-blue-800 transition-colors p-1"
               title="View on regulations.gov"
             >
               <ExternalLink className="h-4 w-4" />
             </a>
           </div>
+        </div>
+
+        {/* Row 2: Metadata */}
+        <div className="flex items-center flex-wrap gap-x-3 gap-y-1 mt-2 text-sm text-gray-600">
+          <span className="text-sm text-gray-600 sm:hidden">• {comment.submitterType}</span>
+          <span className="flex items-center space-x-1">
+            <Calendar className="h-3 w-3 flex-shrink-0" />
+            <span>{formatDate(comment.date)}</span>
+          </span>
+          {comment.location && (
+            <span className="flex items-center space-x-1 hidden sm:flex">
+              <MapPin className="h-3 w-3" />
+              <span>{comment.location}</span>
+            </span>
+          )}
+          {comment.hasAttachments && (
+            <span className="flex items-center space-x-1">
+              <Paperclip className="h-3 w-3" />
+              <span className="hidden sm:inline">Has attachments</span>
+            </span>
+          )}
+          <span className="text-xs font-mono text-gray-500 bg-gray-200 px-2 py-0.5 rounded hidden sm:inline">
+            #{comment.id}
+          </span>
         </div>
       </div>
       
@@ -117,12 +115,12 @@ function CommentDetailView({ comment }: CommentDetailViewProps) {
                 <h5 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">
                   <span className="bg-gray-600 text-white px-2 py-0.5 rounded text-xs mr-2">COMMENTER PROFILE</span>
                 </h5>
-                <div className="prose prose-sm max-w-none pl-4 border-l-2 border-gray-200">
+                <div className="text-sm pl-4 border-l-2 border-gray-200">
                   <ReactMarkdown 
                     remarkPlugins={[remarkGfm]}
                     components={{
-                      ul: ({children}) => <ul className="list-disc list-inside space-y-1 ml-4">{children}</ul>,
-                      ol: ({children}) => <ol className="list-decimal list-inside space-y-1 ml-4">{children}</ol>,
+                      ul: ({children}) => <ul className="list-disc pl-4 space-y-1">{children}</ul>,
+                      ol: ({children}) => <ol className="list-decimal pl-4 space-y-1">{children}</ol>,
                       li: ({children}) => <li className="text-gray-800">{children}</li>,
                     }}
                   >
@@ -138,12 +136,12 @@ function CommentDetailView({ comment }: CommentDetailViewProps) {
                 <h5 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">
                   <span className="bg-purple-600 text-white px-2 py-0.5 rounded text-xs mr-2">CORE POSITION</span>
                 </h5>
-                <div className="prose prose-sm max-w-none pl-4 border-l-2 border-purple-200">
+                <div className="text-sm pl-4 border-l-2 border-purple-200">
                   <ReactMarkdown 
                     remarkPlugins={[remarkGfm]}
                     components={{
-                      ul: ({children}) => <ul className="list-disc list-inside space-y-1 ml-4">{children}</ul>,
-                      ol: ({children}) => <ol className="list-decimal list-inside space-y-1 ml-4">{children}</ol>,
+                      ul: ({children}) => <ul className="list-disc pl-4 space-y-1">{children}</ul>,
+                      ol: ({children}) => <ol className="list-decimal pl-4 space-y-1">{children}</ol>,
                       li: ({children}) => <li className="text-gray-800">{children}</li>,
                     }}
                   >
@@ -161,7 +159,7 @@ function CommentDetailView({ comment }: CommentDetailViewProps) {
                   <span className="bg-amber-600 text-white px-2 py-0.5 rounded text-xs mr-2">KEY QUOTATIONS</span>
                   <Quote className="h-4 w-4 text-amber-600" />
                 </h5>
-                <div className="prose prose-sm max-w-none pl-4 border-l-2 border-amber-200">
+                <div className="text-sm pl-4 border-l-2 border-amber-200">
                   <ReactMarkdown 
                     remarkPlugins={[remarkGfm]}
                     components={{
@@ -198,12 +196,12 @@ function CommentDetailView({ comment }: CommentDetailViewProps) {
                 <h5 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">
                   <span className="bg-blue-600 text-white px-2 py-0.5 rounded text-xs mr-2">KEY RECOMMENDATIONS</span>
                 </h5>
-                <div className="prose prose-sm max-w-none pl-4 border-l-2 border-blue-200">
+                <div className="text-sm pl-4 border-l-2 border-blue-200">
                   <ReactMarkdown 
                     remarkPlugins={[remarkGfm]}
                     components={{
-                      ul: ({children}) => <ul className="list-disc list-inside space-y-1 ml-4">{children}</ul>,
-                      ol: ({children}) => <ol className="list-decimal list-inside space-y-1 ml-4">{children}</ol>,
+                      ul: ({children}) => <ul className="list-disc pl-4 space-y-1">{children}</ul>,
+                      ol: ({children}) => <ol className="list-decimal pl-4 space-y-1">{children}</ol>,
                       li: ({children}) => <li className="text-gray-800">{children}</li>,
                     }}
                   >
@@ -220,12 +218,12 @@ function CommentDetailView({ comment }: CommentDetailViewProps) {
                 <h5 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">
                   <span className="bg-red-600 text-white px-2 py-0.5 rounded text-xs mr-2">MAIN CONCERNS</span>
                 </h5>
-                <div className="prose prose-sm max-w-none pl-4 border-l-2 border-red-200">
+                <div className="text-sm pl-4 border-l-2 border-red-200">
                   <ReactMarkdown 
                     remarkPlugins={[remarkGfm]}
                     components={{
-                      ul: ({children}) => <ul className="list-disc list-inside space-y-1 ml-4">{children}</ul>,
-                      ol: ({children}) => <ol className="list-decimal list-inside space-y-1 ml-4">{children}</ol>,
+                      ul: ({children}) => <ul className="list-disc pl-4 space-y-1">{children}</ul>,
+                      ol: ({children}) => <ol className="list-decimal pl-4 space-y-1">{children}</ol>,
                       li: ({children}) => <li className="text-gray-800">{children}</li>,
                     }}
                   >
@@ -242,12 +240,12 @@ function CommentDetailView({ comment }: CommentDetailViewProps) {
                 <h5 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">
                   <span className="bg-green-600 text-white px-2 py-0.5 rounded text-xs mr-2">NOTABLE INSIGHTS</span>
                 </h5>
-                <div className="prose prose-sm max-w-none pl-4 border-l-2 border-green-200">
+                <div className="text-sm pl-4 border-l-2 border-green-200">
                   <ReactMarkdown 
                     remarkPlugins={[remarkGfm]}
                     components={{
-                      ul: ({children}) => <ul className="list-disc list-inside space-y-1 ml-4">{children}</ul>,
-                      ol: ({children}) => <ol className="list-decimal list-inside space-y-1 ml-4">{children}</ol>,
+                      ul: ({children}) => <ul className="list-disc pl-4 space-y-1">{children}</ul>,
+                      ol: ({children}) => <ol className="list-decimal pl-4 space-y-1">{children}</ol>,
                       li: ({children}) => <li className="text-gray-800">{children}</li>,
                     }}
                   >
@@ -263,9 +261,9 @@ function CommentDetailView({ comment }: CommentDetailViewProps) {
                 <h5 className="text-xs font-bold uppercase tracking-wider text-gray-500 mb-3">
                   <span className="bg-slate-600 text-white px-2 py-0.5 rounded text-xs mr-2">DETAILED CONTENT</span>
                 </h5>
-                <div className="prose prose-sm max-w-none pl-4 border-l-2 border-slate-200">
-                  <ReactMarkdown 
-                    remarkPlugins={[remarkGfm]}
+                <div className="text-sm pl-4 border-l-2 border-slate-200 prose prose-sm max-w-none">
+                  <ReactMarkdown
+                    remarkPlugins={[remarkGfm, remarkBreaks]}
                   >
                     {displaySections.detailedContent}
                   </ReactMarkdown>

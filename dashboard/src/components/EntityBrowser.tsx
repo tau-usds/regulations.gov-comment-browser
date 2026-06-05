@@ -1,4 +1,4 @@
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useEffect } from 'react'
 import { Link } from 'react-router-dom'
 import { Tag, ChevronRight, Copy, ArrowUpDown, ArrowUp, ArrowDown } from 'lucide-react'
 import useStore from '../store/useStore'
@@ -14,6 +14,13 @@ function EntityBrowser() {
   const [sortBy, setSortBy] = useState<SortOption>('mentions-desc')
 
   const categories = Object.keys(entities).sort()
+
+  // Select first category once entities load (initial useState runs before data is ready)
+  useEffect(() => {
+    if (!selectedCategory && categories.length > 0) {
+      setSelectedCategory(categories[0])
+    }
+  }, [categories, selectedCategory])
   
   // User-friendly category names
   const getCategoryDisplayName = (category: string): string => {
@@ -51,11 +58,11 @@ function EntityBrowser() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-6">
+      <div className="bg-white rounded-lg shadow-sm border border-gray-200 p-4 sm:p-6">
         <div className="flex items-center space-x-3">
-          <Tag className="h-6 w-6 text-green-600" />
+          <Tag className="h-6 w-6 text-green-600 flex-shrink-0" />
           <div>
-            <h1 className="text-2xl font-bold text-gray-900">Browse Topics & Organizations</h1>
+            <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Browse Topics & Organizations</h1>
             <p className="text-sm text-gray-500 mt-1">
               Explore key topics, organizations, and subjects mentioned in comments
             </p>
@@ -205,6 +212,7 @@ function EntityBrowser() {
         isOpen={showCopyModal && !!copyEntity}
         onClose={() => { setShowCopyModal(false); setCopyEntity(null); }}
         title={copyEntity ? `Copy comments mentioning "${copyEntity.label}" for LLM` : ''}
+        contextKey="entity-browser"
         comments={copyEntity ? getCommentsForEntity(copyEntity.category, copyEntity.label) : []}
       />
     </div>

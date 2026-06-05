@@ -2,6 +2,7 @@
 import { Command } from "commander";
 import { loadCommentsCommand } from "./commands/load-comments";
 import { clusterCommentsFastCommand } from "./commands/cluster-comments-fast";
+import { transcribeCommand } from "./commands/transcribe";
 import { condenseCommand } from "./commands/condense";
 import { discoverThemesCommand } from "./commands/discover-themes";
 import { summarizeThemesCommand } from "./commands/summarize-themes";
@@ -13,6 +14,7 @@ import { pipelineCommand } from "./commands/pipeline";
 import { generateLandingPageCommand } from "./commands/generate-landing-page";
 import { cacheCommand } from "./commands/cache";
 import { vacuumDbCommand } from "./commands/vacuum-db";
+import { buildSkillCommand } from "./commands/build-skill";
 
 const program = new Command()
   .name("regulations-comment-analysis")
@@ -22,6 +24,7 @@ const program = new Command()
 // Register all commands
 program.addCommand(loadCommentsCommand);
 program.addCommand(clusterCommentsFastCommand);
+program.addCommand(transcribeCommand);
 program.addCommand(condenseCommand);
 program.addCommand(discoverThemesCommand);
 program.addCommand(summarizeThemesCommand);
@@ -33,6 +36,7 @@ program.addCommand(pipelineCommand);
 program.addCommand(generateLandingPageCommand);
 program.addCommand(cacheCommand);
 program.addCommand(vacuumDbCommand);
+program.addCommand(buildSkillCommand);
 
 // Parse and execute
 program.parse();

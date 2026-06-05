@@ -58,92 +58,86 @@ async function generateLandingPage(options: any) {
     const documentId = dbFile.replace('.sqlite', '');
     console.log(`  Processing ${documentId}...`);
     
-    try {
-      const db = openDb(documentId);
-      
-      // Read document details from database
-      let title = documentId;
-      let docketId = documentId;
-      let agency = "Unknown Agency";
-      
-      try {
-        // Check if document_metadata table exists and has data
-        const hasMetadata = db.prepare(`
-          SELECT name FROM sqlite_master 
-          WHERE type='table' AND name='document_metadata'
-        `).get();
-        
-        if (hasMetadata) {
-          const metadata = db.prepare(`
-            SELECT title, docket_id, agency_name, agency_id
-            FROM document_metadata
-            WHERE document_id = ?
-          `).get(documentId) as any;
-          
-          if (metadata) {
-            title = metadata.title || documentId;
-            docketId = metadata.docket_id || documentId;
-            agency = metadata.agency_name || metadata.agency_id || "Unknown Agency";
-          } else {
-            console.warn(`  ⚠️  No metadata found in database for ${documentId}`);
-          }
-        } else {
-          console.warn(`  ⚠️  No document_metadata table in database for ${documentId}`);
-        }
-      } catch (error) {
-        console.warn(`  ⚠️  Failed to read metadata for ${documentId}:`, error);
-      }
-      
-      // Get statistics
-      const stats = {
-        commentCount: (db.prepare("SELECT COUNT(*) as count FROM comments").get() as any).count,
-        condensedCount: (db.prepare("SELECT COUNT(*) as count FROM condensed_comments WHERE status = 'completed'").get() as any).count,
-        themeCount: (db.prepare("SELECT COUNT(*) as count FROM theme_hierarchy").get() as any).count,
-        scoredCount: (db.prepare("SELECT COUNT(DISTINCT comment_id) as count FROM comment_themes").get() as any).count,
-        summaryCount: (db.prepare("SELECT COUNT(*) as count FROM theme_summaries").get() as any).count,
-      };
-      
-      // Get last update time
-      const lastComment = db.prepare(`
-        SELECT created_at 
-        FROM comments 
-        ORDER BY created_at DESC 
+    const db = openDb(documentId);
+
+    // Read document details from database
+    let title = documentId;
+    let docketId = documentId;
+    let agency = "Unknown Agency";
+    let commentEndDate = "";
+
+    const hasMetadata = db.prepare(`
+      SELECT name FROM sqlite_master
+      WHERE type='table' AND name='document_metadata'
+    `).get();
+
+    if (hasMetadata) {
+      const metadata = db.prepare(`
+        SELECT title, docket_id, agency_name, agency_id, comment_end_date
+        FROM document_metadata
         LIMIT 1
-      `).get() as { created_at: string } | undefined;
-      
-      // Determine processing status
-      let status = "Not Started";
-      if (stats.summaryCount > 0) {
-        status = "Complete";
-      } else if (stats.scoredCount > 0) {
-        status = "Themes Scored";
-      } else if (stats.themeCount > 0) {
-        status = "Themes Discovered";
-      } else if (stats.condensedCount > 0) {
-        status = "Condensed";
-      } else if (stats.commentCount > 0) {
-        status = "Comments Loaded";
+      `).get() as any;
+
+      if (metadata) {
+        title = metadata.title || documentId;
+        docketId = metadata.docket_id || documentId;
+        agency = metadata.agency_name || metadata.agency_id || "Unknown Agency";
+        if (metadata.comment_end_date) commentEndDate = metadata.comment_end_date;
+      } else {
+        console.warn(`  ⚠️  No metadata found in database for ${documentId}`);
       }
-      
-      regulations.push({
-        id: documentId,
-        title,
-        docketId,
-        commentCount: stats.commentCount,
-        themeCount: stats.themeCount,
-        lastUpdated: lastComment?.created_at || new Date().toISOString(),
-        agency,
-        status
-      });
-      
-      db.close();
-    } catch (error) {
-      console.error(`  ⚠️  Failed to process ${documentId}:`, error);
+    } else {
+      console.warn(`  ⚠️  No document_metadata table in database for ${documentId}`);
     }
+
+    // Get statistics
+    const stats = {
+      commentCount: (db.prepare("SELECT COUNT(*) as count FROM comments").get() as any).count,
+      condensedCount: (db.prepare("SELECT COUNT(*) as count FROM condensed_comments WHERE status = 'completed'").get() as any).count,
+      themeCount: (db.prepare("SELECT COUNT(*) as count FROM theme_hierarchy").get() as any).count,
+      scoredCount: (db.prepare("SELECT COUNT(DISTINCT comment_id) as count FROM comment_themes").get() as any).count,
+      summaryCount: (db.prepare("SELECT COUNT(*) as count FROM theme_summaries").get() as any).count,
+    };
+
+    // Fall back to latest comment date if no comment_end_date
+    if (!commentEndDate) {
+      const latest = db.prepare(`
+        SELECT json_extract(attributes_json, '$.postedDate') as posted
+        FROM comments ORDER BY json_extract(attributes_json, '$.postedDate') DESC LIMIT 1
+      `).get() as any;
+      if (latest?.posted) commentEndDate = latest.posted;
+    }
+
+    // Determine processing status
+    let status = "Not Started";
+    if (stats.summaryCount > 0) {
+      status = "Complete";
+    } else if (stats.scoredCount > 0) {
+      status = "Themes Scored";
+    } else if (stats.themeCount > 0) {
+      status = "Themes Discovered";
+    } else if (stats.condensedCount > 0) {
+      status = "Condensed";
+    } else if (stats.commentCount > 0) {
+      status = "Comments Loaded";
+    }
+
+    regulations.push({
+      id: docketId,
+      title,
+      docketId,
+      commentCount: stats.commentCount,
+      themeCount: stats.themeCount,
+      lastUpdated: commentEndDate || new Date().toISOString(),
+      agency,
+      status
+    });
+
+    db.close();
   }
   
-  // Sort by comment count (descending)
-  regulations.sort((a, b) => b.commentCount - a.commentCount);
+  // Sort by date (most recent first)
+  regulations.sort((a, b) => (b.lastUpdated || "").localeCompare(a.lastUpdated || ""));
   
   // Generate HTML
   const html = generateHTML(regulations);
@@ -360,55 +354,118 @@ function generateHTML(regulations: RegulationInfo[]): string {
       margin-left: 1rem;
     }
     
-    .floodgate-section {
-      background: linear-gradient(135deg, #0077be 0%, #00a8cc 100%);
+    .skill-section {
+      background: linear-gradient(135deg, #5b21b6 0%, #7c3aed 100%);
       padding: 2rem;
       border-radius: 0.5rem;
       box-shadow: 0 4px 6px rgba(0,0,0,0.1);
-      margin-bottom: 3rem;
+      margin-bottom: 1.5rem;
       color: white;
     }
-    
-    .floodgate-section h2 {
+
+    .skill-section h2 {
       font-size: 1.75rem;
       margin-bottom: 1rem;
       display: flex;
       align-items: center;
       gap: 0.5rem;
     }
-    
-    .floodgate-section p {
+
+    .skill-section p {
       margin-bottom: 1.5rem;
       opacity: 0.95;
     }
-    
-    .floodgate-link {
+
+    .skill-section .prompt-label {
+      font-size: 0.875rem;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.05em;
+      margin-bottom: 0.5rem;
+      opacity: 0.85;
+    }
+
+    .prompt-box {
+      background: rgba(0,0,0,0.25);
+      border: 1px solid rgba(255,255,255,0.2);
+      border-radius: 0.5rem;
+      padding: 1rem 1.25rem;
+      font-size: 0.95rem;
+      line-height: 1.5;
+      margin-bottom: 1rem;
+      cursor: pointer;
+      position: relative;
+      transition: background 0.2s;
+    }
+
+    .prompt-box:hover {
+      background: rgba(0,0,0,0.35);
+    }
+
+    .prompt-box code {
+      color: rgba(255,255,255,0.7);
+      font-style: italic;
+    }
+
+    .prompt-box .copy-hint {
+      position: absolute;
+      top: 0.5rem;
+      right: 0.75rem;
+      font-size: 0.75rem;
+      opacity: 0.6;
+      transition: opacity 0.2s;
+    }
+
+    .prompt-box:hover .copy-hint {
+      opacity: 1;
+    }
+
+    .prompt-box.copied {
+      background: rgba(0,0,0,0.4);
+    }
+
+    .prompt-box.copied .copy-hint {
+      opacity: 1;
+    }
+
+    .skill-links {
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      align-items: center;
+    }
+
+    .skill-link {
       display: inline-block;
       background: white;
-      color: #0077be;
+      color: #5b21b6;
       padding: 0.75rem 1.5rem;
       border-radius: 0.375rem;
       text-decoration: none;
       font-weight: 600;
       transition: all 0.2s;
     }
-    
-    .floodgate-link:hover {
+
+    .skill-link:hover {
       transform: translateY(-2px);
       box-shadow: 0 4px 12px rgba(0,0,0,0.2);
     }
-    
-    .warning-badge {
-      display: inline-block;
-      background: rgba(255,255,255,0.2);
-      padding: 0.25rem 0.75rem;
-      border-radius: 9999px;
-      font-size: 0.75rem;
-      text-transform: uppercase;
-      letter-spacing: 0.05em;
-      margin-left: 1rem;
+
+    .skill-link-secondary {
+      background: rgba(255,255,255,0.15);
+      color: white;
+      border: 1px solid rgba(255,255,255,0.3);
     }
-    
+
+    .skill-link-secondary:hover {
+      background: rgba(255,255,255,0.25);
+    }
+
+    .skill-divider {
+      opacity: 0.5;
+      font-size: 0.875rem;
+    }
+
     footer {
       text-align: center;
       padding: 2rem 0;
@@ -442,7 +499,7 @@ function generateHTML(regulations: RegulationInfo[]): string {
           <div class="regulation-header">
             <div>
               <h3 class="regulation-title">${escapeHtml(reg.title)}</h3>
-              <p class="regulation-id">Docket: ${reg.docketId} | Document: ${reg.id}</p>
+              <p class="regulation-id">Docket: ${reg.docketId}</p>
             </div>
             <span class="regulation-status status-${reg.status.toLowerCase().replace(/\s+/g, '-')}">${reg.status}</span>
           </div>
@@ -450,6 +507,11 @@ function generateHTML(regulations: RegulationInfo[]): string {
             <div class="meta-item">
               <strong>${reg.agency}</strong>
             </div>
+            ${reg.lastUpdated ? `
+            <div class="meta-item">
+              Closed <strong>${new Date(reg.lastUpdated).toLocaleDateString('en-US', { month: 'short', year: 'numeric' })}</strong>
+            </div>
+            ` : ''}
             <div class="meta-item">
               <strong>${reg.commentCount.toLocaleString()}</strong> comments
             </div>
@@ -479,25 +541,50 @@ function generateHTML(regulations: RegulationInfo[]): string {
       </div>
     </div>
     
-    <div class="floodgate-section">
+    <div class="skill-section">
       <h2>
-        🌊 FloodGate
-        <span class="warning-badge">Research Demo</span>
+        AI Skill
       </h2>
       <p>
-        <strong>Explore the future of public comment campaigns.</strong> FloodGate demonstrates how AI can generate 
-        thousands of unique, authentic-seeming comments that share core arguments but vary dramatically in expression. 
-        This proof-of-concept tool shows why traditional form letter detection methods may soon become obsolete.
+        <strong>Give your AI assistant direct access to this dataset.</strong> The AI skill
+        teaches language models how to fetch, search, and analyze all ${totalComments.toLocaleString()} comments
+        across ${regulations.length} dockets — including theme hierarchies, entity taxonomies,
+        and structured comment summaries.
       </p>
-      <p>
-        Try generating a few comments to see how different they can be while maintaining the same position. 
-        This is a research demonstration only—not for actual submission to government agencies.
-      </p>
-      <a href="./floodgate/" class="floodgate-link">
-        Launch FloodGate Demo →
-      </a>
+      <div class="prompt-label">Copy this prompt to your AI assistant</div>
+      <div class="prompt-box" onclick="copyPrompt(this)">
+        <span class="copy-hint">Click to copy</span>
+        Please read https://joshuamandel.com/regulations.gov-comment-browser/skill/SKILL.md and then help me analyze public comments on federal regulations. <code>[Ask your question here]</code>
+      </div>
+      <div class="skill-links">
+        <a href="https://claude.ai/new?q=${encodeURIComponent('Please read https://joshuamandel.com/regulations.gov-comment-browser/skill/SKILL.md and then help me analyze public comments on federal regulations.')}" class="skill-link" target="_blank">
+          Open in Claude &rarr;
+        </a>
+        <!-- ChatGPT sandbox prevents web access, so this doesn't work -->
+        <!-- <a href="https://chatgpt.com/?q=${encodeURIComponent('Please read https://joshuamandel.com/regulations.gov-comment-browser/skill/SKILL.md and then help me analyze public comments on federal regulations.')}" class="skill-link" target="_blank">
+          Open in ChatGPT &rarr;
+        </a> -->
+        <span class="skill-divider">or</span>
+        <a href="./skill/SKILL.md" class="skill-link skill-link-secondary">
+          View Skill File
+        </a>
+      </div>
     </div>
-    
+    <script>
+    function copyPrompt(el) {
+      const text = el.textContent.replace('Click to copy', '').trim();
+      navigator.clipboard.writeText(text).then(() => {
+        const hint = el.querySelector('.copy-hint');
+        hint.textContent = 'Copied!';
+        el.classList.add('copied');
+        setTimeout(() => {
+          hint.textContent = 'Click to copy';
+          el.classList.remove('copied');
+        }, 2000);
+      });
+    }
+    </script>
+
     <div class="about-section">
       <h2>About This Tool</h2>
       <p>
